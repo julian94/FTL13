@@ -6,6 +6,7 @@ var/datum/subsystem/starmap/SSstarmap
 	init_order = 100001 // Initialize before mapping.
 
 	var/list/star_systems = list()
+	var/list/capitals = list()
 
 	//Information on where the ship is
 	var/datum/star_system/current_system
@@ -25,37 +26,56 @@ var/datum/subsystem/starmap/SSstarmap
 
 	var/obj/machinery/ftl_drive/ftl_drive
 	var/obj/machinery/ftl_shieldgen/ftl_shieldgen
-
+	
+	var/list/ship_objectives = list()
+	
+	var/list/objective_types = list(/datum/objective/ftl/killships = 2, /datum/objective/ftl/delivery = 1)
 
 /datum/subsystem/starmap/New()
 	NEW_SS_GLOBAL(SSstarmap)
 
 /datum/subsystem/starmap/Initialize(timeofday)
 
+	var/datum/star_system/base
+	
+	base = new
+	base.generate()
+	base.x = 25
+	base.y = 40
+	star_systems += base
+	base.alignment = "nanotrasen"
+	base.capital_planet = 1
+	base.danger_level = 8
+	capitals[base.alignment] = base
+	current_system = base
+	current_planet = base.navbeacon
+	current_system.visited = 1
+	
+	base = new
+	base.generate()
+	base.x = 28
+	base.y = 70
+	star_systems += base
+	base.alignment = "syndicate"
+	base.capital_planet = 1
+	base.danger_level = 8
+	capitals[base.alignment] = base
+	
+	base = new
+	base.generate()
+	base.x = 70
+	base.y = 45
+	star_systems += base
+	base.alignment = "solgov"
+	base.capital_planet = 1
+	base.danger_level = 8
+	capitals[base.alignment] = base
+	
 	// Generate star systems
 	for(var/i in 1 to 100)
 		var/datum/star_system/system = new
 		system.generate()
 		star_systems += system
-
-	var/datum/star_system/base
-	while(!base || base.alignment != "unaligned")
-		base = pick(star_systems)
-	base.alignment = "nanotrasen"
-	base.capital_planet = 1
-	base.danger_level = 10
-	current_system = base
-	current_system.visited = 1
-	while(!base || base.alignment != "unaligned")
-		base = pick(star_systems)
-	base.alignment = "syndicate"
-	base.capital_planet = 1
-	base.danger_level = 10
-	while(!base || base.alignment != "unaligned")
-		base = pick(star_systems)
-	base.alignment = "solgov"
-	base.capital_planet = 1
-	base.danger_level = 10
 
 	// Generate territories
 	for(var/i in 1 to 70)
@@ -80,18 +100,28 @@ var/datum/subsystem/starmap/SSstarmap
 				system_closest_to_territory = E
 		if(system_closest_to_territory)
 			system_closest_to_territory.alignment = territory_to_expand
-			system_closest_to_territory.danger_level = max(1, max(1,round((80 - system_closest_to_territory.dist(capital)) / 8)))
+			system_closest_to_territory.danger_level = max(1, max(1,round((50 - system_closest_to_territory.dist(capital)) / 8)))
 
 
 	..()
 
 /datum/subsystem/starmap/fire()
 	if(world.time > to_time && in_transit)
-		if(is_loading) // Not done loading yet, delay arrival by 30 seconds
-			to_time += 300
-			return
-
+		
+		for(var/area/shuttle/ftl/F in world)
+			F << 'sound/effects/hyperspace_end.ogg'
+		parallax_movedir_in_areas(/area/shuttle/ftl, 0)
+		parallax_launch_in_areas(/area/shuttle/ftl, 4, 1)
+		toggle_ambience(0)
+		
+		sleep(1)
+		
 		current_system = to_system
+		
+		var/obj/docking_port/stationary/ftl_start = SSshuttle.getDock("ftl_start")
+		current_system.navbeacon.docks = list(ftl_start)
+		current_system.navbeacon.main_dock = ftl_start
+		current_planet = current_system.navbeacon
 
 		from_system = null
 		from_time = 0
@@ -100,19 +130,26 @@ var/datum/subsystem/starmap/SSstarmap
 		in_transit = 0
 
 		var/obj/docking_port/mobile/ftl/ftl = SSshuttle.getShuttle("ftl")
-		var/obj/docking_port/stationary/dest = SSshuttle.getDock("ftl_start") // For now
+		var/obj/docking_port/stationary/dest = ftl_start
 
 		ftl.dock(dest)
-		for(var/area/shuttle/ftl/F in world)
-			F << 'sound/effects/hyperspace_end.ogg'
-		toggle_ambience(0)
 		current_system.visited = 1
-
 
 		generate_npc_ships()
 
 	if(world.time > to_time && in_transit_planet)
-
+		if(is_loading) // Not done loading yet, delay arrival by 10 seconds
+			to_time += 100
+			return
+		
+		for(var/area/shuttle/ftl/F in world)
+			F << 'sound/effects/hyperspace_end.ogg'
+		parallax_movedir_in_areas(/area/shuttle/ftl, 0)
+		parallax_launch_in_areas(/area/shuttle/ftl, 4, 1)
+		toggle_ambience(0)
+		
+		sleep(1)
+		
 		current_planet = to_planet
 
 		from_planet = null
@@ -124,11 +161,29 @@ var/datum/subsystem/starmap/SSstarmap
 		var/obj/docking_port/mobile/ftl/ftl = SSshuttle.getShuttle("ftl")
 
 		ftl.dock(current_planet.main_dock)
-		for(var/area/shuttle/ftl/F in world)
-			F << 'sound/effects/hyperspace_end.ogg'
-		toggle_ambience(0)
-
-
+	
+	// Check and update ship objectives
+	var/objectives_complete = 1
+	for(var/datum/objective/O in ship_objectives)
+		if((O.type == /datum/objective/ftl/gohome) || (!O.failed && !O.check_completion() && !O.failed))
+			objectives_complete = 0
+	
+	if(objectives_complete)
+		// Make a new objective
+		var/datum/objective/O
+		
+		if(objective_types.len && world.time < 54000)
+			var/objectivetype = pickweight(objective_types)
+			objective_types[objectivetype]--
+			if(objective_types[objectivetype] <= 0)
+				objective_types -= objectivetype
+			O = new objectivetype
+		else
+			O = new /datum/objective/ftl/gohome
+			
+		O.find_target()
+		ship_objectives += O
+		priority_announce("Ship objectives updated. Please check a communications console for details.", null, null)
 
 /datum/subsystem/starmap/proc/get_transit_progress()
 	if(!in_transit && !in_transit_planet)
@@ -163,18 +218,21 @@ var/datum/subsystem/starmap/SSstarmap
 	from_system = current_system
 	from_time = world.time + 40
 	to_system = target
-	to_time = world.time + 1840 // Should give more than enough time to load the maps.
+	to_time = world.time + 1850
 	current_system = null
 	in_transit = 1
 	ftl_drive.plasma_charge = 0
 	ftl_drive.power_charge = 0
 	for(var/area/shuttle/ftl/F in world)
 		F << 'sound/effects/hyperspace_begin.ogg'
-	spawn(40)
-		ftl.enterTransit()
+	parallax_launch_in_areas(/area/shuttle/ftl, 4, 0)
+	spawn(49)
 		toggle_ambience(1)
-	spawn(45)
-		SSmapping.load_star(target)
+		parallax_movedir_in_areas(/area/shuttle/ftl, 4)
+	spawn(50)
+		ftl.enterTransit()
+	spawn(55)
+		SSmapping.clear_navbeacon()
 
 	return 0
 
@@ -189,23 +247,28 @@ var/datum/subsystem/starmap/SSstarmap
 	from_planet = current_planet
 	from_time = world.time + 40
 	to_planet = target
-	to_time = world.time + 190 // A quick jump to another planet!
+	to_time = world.time + 650 // Oh god, this is some serous jump time.
 	current_planet = null
 	in_transit_planet = 1
 	ftl_drive.plasma_charge -= ftl_drive.plasma_charge_max*0.25
 	ftl_drive.power_charge -= ftl_drive.power_charge_max*0.25
 	for(var/area/shuttle/ftl/F in world)
 		F << 'sound/effects/hyperspace_begin.ogg'
-	spawn(40)
-		ftl.enterTransit()
+	parallax_launch_in_areas(/area/shuttle/ftl, 4, 0)
+	spawn(49)
 		toggle_ambience(1)
+		parallax_movedir_in_areas(/area/shuttle/ftl, 4)
+	spawn(50)
+		ftl.enterTransit()
+	spawn(55)
+		SSmapping.load_planet(target)
 
 	return 0
 
 /datum/subsystem/starmap/proc/jump_port(var/obj/docking_port/stationary/target)
 	if(in_transit || in_transit_planet)
 		return 1
-	if(!target || target.z != current_planet.z_level)
+	if(!target || !(target.z in current_planet.z_levels))
 		return 1
 	var/obj/docking_port/mobile/ftl/ftl = SSshuttle.getShuttle("ftl")
 	if(target == ftl.get_docked())
@@ -231,13 +294,10 @@ var/datum/subsystem/starmap/SSstarmap
 	if(current_system.alignment == "unaligned"|| prob(10))
 		f_list = SSship.faction2list("pirate") //unaligned systems have pirates, and aligned systems have a small chance
 		generating_pirates = 1
-		num = rand(1,4)
+		num = rand(1,2)
 
-	else f_list = SSship.faction2list(current_system.alignment)
-
-
-
-
+	else
+		f_list = SSship.faction2list(current_system.alignment)
 
 	for(var/i = 1 to num)
 		var/datum/starship/S
@@ -255,3 +315,15 @@ var/datum/subsystem/starmap/SSstarmap
 			N.faction = current_system.alignment //a bit hacky, yes, pretty much overrides the wierd list with faction and chance to a numerical var.
 		else
 			N.faction = "pirate"
+
+/datum/subsystem/starmap/proc/pick_station(var/alignment, var/datum/star_system/origin, var/distance)
+	var/list/possible_stations = list();
+	for(var/datum/star_system/S in star_systems)
+		if(S.alignment != alignment)
+			continue
+		if(origin && (origin.dist(S) > distance))
+			continue
+		for(var/datum/planet/P in S.planets)
+			if(P.station)
+				possible_stations += P
+	return pick(possible_stations)

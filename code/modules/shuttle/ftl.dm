@@ -2,11 +2,17 @@
 	name = "FTL Ship"
 	id = "ftl"
 	var/area_base_type = /area/shuttle/ftl
+	cutout_extarea = /area/no_entry
+	cutout_newarea = /area/shuttle/ftl/space
 	dir = FTL_SHIP_DIR
 	dwidth = FTL_SHIP_DWIDTH
 	dheight = FTL_SHIP_DHEIGHT
 	width = FTL_SHIP_WIDTH
 	height = FTL_SHIP_HEIGHT
+
+/obj/docking_port/mobile/ftl/register()
+	. = ..()
+	SSshuttle.ftl = src
 
 /obj/docking_port/mobile/ftl/is_valid_area_for_shuttle(area/tileArea, area/thisArea)
 	return istype(tileArea, area_base_type)
@@ -135,7 +141,7 @@
 			system_list["visited"] = system.visited
 			var/label = ""
 			for(var/datum/planet/P in system.planets)
-				if(P.z_level != -1 && P.z_level > 2 && !P.do_unload())
+				if(P.z_levels.len && P.z_levels[1] > 2 && !P.do_unload())
 					label = "RELAY"
 					break
 			if(system.capital_planet && !label)
@@ -169,7 +175,7 @@
 			planet_list["y"] = planet.disp_y
 			planet_list["dist"] = planet.disp_dist
 			var/label = ""
-			if(planet.z_level != -1 && planet.z_level > 2 && !planet.do_unload())
+			if(planet.z_levels.len && planet.z_levels[1] > 2 && !planet.do_unload())
 				label = "RELAY"
 			planet_list["label"] = label
 			planets_list[++planets_list.len] = planet_list

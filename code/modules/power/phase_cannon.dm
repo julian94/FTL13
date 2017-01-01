@@ -1,9 +1,11 @@
 /obj/machinery/power/shipweapon
 	name = "phase cannon"
 	desc = "A powerful weapon designed to take down shields.\n<span class='notice'>Alt-click to rotate it clockwise.</span>"
-	icon = 'icons/obj/singularity.dmi'
-	icon_state = "emitter"
-	var/icon_state_on = "emitter_+a"
+	icon = 'icons/obj/96x96.dmi'
+	icon_state = "phase_cannon_0"
+	pixel_x = -32
+	pixel_y = -32
+	power_group = POWER_GROUP_PARTIALPOWER
 	anchored = 0
 	density = 1
 	var/obj/item/weapon/stock_parts/cell/cell
@@ -13,7 +15,7 @@
 	var/locked = 0
 
 	var/projectile_type = /obj/item/projectile/ship_projectile/phase_blast
-	var/projectile_sound = 'sound/weapons/emitter.ogg'
+	var/projectile_sound = 'sound/effects/phasefire.ogg'
 
 
 /obj/machinery/power/shipweapon/New()
@@ -38,16 +40,14 @@
 							/obj/item/weapon/stock_parts/cell = 1)
 
 /obj/machinery/power/shipweapon/process()
+	power_requested = 0
 	if(stat & (BROKEN|MAINT))
 		return
 	if(state != 2)
 		return
-
-	var/input_available = surplus()
-	if(input_available > 0 && input_available >= charge_rate)		// if there's power available, try to charge
-		var/load = min((cell.maxcharge-cell.charge)/CHARGELEVEL, charge_rate)		// charge at set rate, limited to spare capacity
-		cell.give(load * CHARGELEVEL)	// increase the charge
-		add_load(load)		// add the load to the terminal side network
+	var/load = min((cell.maxcharge-cell.charge)/CELLRATE, charge_rate)		// charge at set rate, limited to spare capacity
+	power_requested = load // add the load to the terminal side network
+	cell.give(last_power_received * CELLRATE)	// increase the charge
 
 	update_icon()
 
@@ -65,7 +65,13 @@
 
 	A.setDir(src.dir)
 	A.set_data(1,1,0,target_component)
-	playsound(src.loc, projectile_sound, 25, 1)
+	playsound(src.loc, projectile_sound, 50, 1)
+	for(var/obj/machinery/computer/ftl_weapons/C in world)
+		if(!istype(get_area(C), /area/shuttle/ftl))
+			continue
+		if(!(src in C.laser_weapons))
+			continue
+		playsound(C, projectile_sound, 50, 1)
 
 	if(prob(35))
 		var/datum/effect_system/spark_spread/s = new /datum/effect_system/spark_spread
@@ -124,7 +130,8 @@
 
 /obj/machinery/power/shipweapon/update_icon()
 	if (can_fire())
-		icon_state = icon_state_on
+		var/fancydiff = (cell.maxcharge/3)-190
+		icon_state = "phase_cannon_[max(1,min(3,round((cell.charge+fancydiff)*3/(cell.maxcharge))))]"
 	else
 		icon_state = initial(icon_state)
 
